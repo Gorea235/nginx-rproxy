@@ -1,5 +1,8 @@
 #! /bin/bash
 ###############################################################################
+# (A lot of code sourced from:
+# https://www.cb-net.co.uk/linux/using-lets-encrypt-with-an-nginx-docker-container-plus-bye-bye-startssl/)
+# 
 # This script is for initialising an nginx proxy, installing certificates from
 # letscnrypt, and provides the ability to renew them.
 # 
