@@ -1,5 +1,5 @@
 # Nginx Reverse-Proxy Setup & Management
-This repo contains file that aid with the setting up of a Nginx-based reverse-proxy that has SSL enable via letsencrypt. The main management script is [proxy-manage](proxy_manager/proxy-manage), and has the config [proxy-manage.conf](proxy_manager/proxy-manage.conf). This script does most of the work, however there are some parts you will need to modify (the script's conf file, and the `vars.*.conf` files under the [nginx config](nginx_config/running/includes)), and there is some interaction, copying, etc you need to do to get the certificates working. The full instructs are below.
+This repo contains file that aid with the setting up of a Nginx-based reverse-proxy that has SSL enable via letsencrypt. The main management script is [proxy-manage](proxy_manager/proxy-manage), and has the config [proxy-manage.conf](proxy_manager/proxy-manage.conf). This script does most of the work, however there are some parts you will need to modify (the script's conf file, [`nginx.def.conf`](nginx_config/setup/nginx.def.conf), and the `vars.*.conf` files under the [nginx config](nginx_config/running/includes)), and there is some interaction, copying, etc you need to do to get the certificates working. The full instructs are below.
 
 ## Script usage
 (Brief note: the script is designed to be ran from the current directory. If this doesn't work for you, change the variables near the top of the script to an absolute path, and it will then run regardless of the current directory.)
@@ -16,4 +16,4 @@ To setup the renew, add something like the following to the sudo crontab:
 0 0 * * 0,5 (cd <script copy location> && ./proxy-manage renew)
 ```
 
-This will execute the renew script every Monday & Thursday. The cd command is used to keep the relative paths that this script uses. The log of this renew is stored in `$RENEW_LOG`.
+This will execute the renew script every Monday & Thursday. The cd command is used to keep the relative paths that the script uses. The log of this renew is stored in `$RENEW_LOG`.
