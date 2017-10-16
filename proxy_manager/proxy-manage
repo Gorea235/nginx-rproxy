@@ -1,0 +1,95 @@
+#! /bin/bash
+###############################################################################
+# This script is for initialising an nginx proxy, installing certificates from
+# letscnrypt, and provides the ability to renew them.
+# 
+# To use this script properly, copy it and the conf file to a directory on
+# the server computer, edit the conf file to your specifications, and run this
+# file under sudo with the argument 'init-rp'. This will set up the nginx
+# proxy container and the volume directories. After, copy 'nginx_config/setup/*'
+# into the '$NGINX_VOLUMES/conf.d' directory in order to setup the base
+# certification server, then restart the $RPROXY_NAME container to enable it.
+# 
+# Once this is done, run this file under sudo again with the argument 'init-cert'
+# in order to initialise the certbot. Once this is done, delete the content of
+# the '$NGINX_VOLUMES/conf.d' folder, and copy in 'nginx_config/running/*', 
+# then edit the 'var.*' files in the includes folder to the variables of the
+# server, then restart the $RPROXY_NAME container to enable it.
+# 
+# Once this is done, the reverse proxy should be working with SSL enabled.
+# 
+# To setup the renew, add something like the following to the sudo crontab:
+# 
+#     0 0 * * 0,5 (cd <script copy location> && ./proxy-manage renew)
+# 
+# This will execute the renew script every Monday & Thursday. The cd command
+# is used to keep the relative paths that this script uses. The log of this
+# renew is stored in $RENEW_LOG.
+###############################################################################
+
+# main variables
+CONFIG="./proxy-manage.conf"
+RENEW_LOG="./proxy-manage-renew.log"
+RENEW_ECHO_FLAIR=" ================== "
+
+# root check
+if [[ $EUID -ne 0 ]]; then
+   echo This script must be run as root
+   exit 1
+fi
+if [ $# -eq 0 ]; then
+    echo This script requires 1 argument
+    exit 1
+fi
+if [ ! -f $CONFIG ]; then
+    echo The config file at $CONFIG does not exist
+    echo Please create it, or set the location in this script
+    exit 1
+fi
+
+# load variables
+source $CONFIG
+
+if [ $1 == "init-rp" ]; then
+    # init volumes
+    # and set owner to the config value
+    mkdir -p $NGINX_VOLUMES/conf.d
+    chown $STD_USER $NGINX_VOLUMES/conf.d
+    for d in ${DOMAINS[@]}; do
+        mkdir -p $NGINX_VOLUMES/www/${d}
+        chown $STD_USER $NGINX_VOLUMES/www/${d}
+    done
+    mkdir -p $NGINX_VOLUMES/ssl
+    chown $STD_USER $NGINX_VOLUMES/ssl
+
+    # init nginx container
+    docker run --name $RPROXY_NAME -p 80:80 -p 443:443 \
+        --restart always --network $NETWORK_NAME \
+        -v $NGINX_VOLUMES/ssl/:/etc/nginx/ssl/ \
+        -v $NGINX_VOLUMES/conf.d/:/etc/nginx/conf.d/ \
+        -v $NGINX_VOLUMES/www/:/var/www \
+        -d nginx:alpine
+elif [ $1 == "init-cert" ]; then
+    # init certbot
+    for d in ${DOMAINS[@]}; do
+        docker run -it --rm --name letsencrypt \
+            -v "$NGINX_VOLUMES/ssl:/etc/letsencrypt" \
+            --volumes-from $RPROXY_NAME \
+            certbot/certbot \
+            certonly \
+            --webroot \
+            --webroot-path /var/www/${d} \
+            --agree-tos \
+            --renew-by-default \
+            -d ${d} \
+            -m $EMAIL
+    done
+elif [ $1 == "renew" ]; then
+    echo $RENEW_ECHO_FLAIR Running renewal check... $RENEW_ECHO_FLAIR >> $RENEW_LOG
+    docker run -t --rm --name letsencrypt \
+        -v "$NGINX_VOLUMES/ssl:/etc/letsencrypt" \
+        --volumes-from $RPROXY_NAME \
+        certbot/certbot \
+        renew &>> $RENEW_LOG
+    echo $RENEW_ECHO_FLAIR Renew check complete $RENEW_ECHO_FLAIR >> $RENEW_LOG
+fi
