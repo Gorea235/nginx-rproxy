@@ -36,15 +36,11 @@ RENEW_LOG="./proxy-manage-renew.log"
 RENEW_ECHO_FLAIR=" ================== "
 
 # root check
-if [[ $EUID -ne 0 ]]; then
+if [[ $(uname) != "Darwin" && $EUID -ne 0 ]]; then
    echo This script must be run as root
    exit 1
 fi
-if [ $# -eq 0 ]; then
-    echo This script requires 1 argument
-    exit 1
-fi
-if [ ! -f $CONFIG ]; then
+if [[ ! -f $CONFIG ]]; then
     echo The config file at $CONFIG does not exist
     echo Please create it, or set the location in this script
     exit 1
@@ -53,7 +49,7 @@ fi
 # load variables
 source $CONFIG
 
-if [ $1 == "init-rp" ]; then
+if [[ $1 == "init-rp" ]]; then
     # init volumes
     # and set owner to the config value
     mkdir -p $NGINX_VOLUMES/conf.d
@@ -72,7 +68,7 @@ if [ $1 == "init-rp" ]; then
         -v $NGINX_VOLUMES/conf.d/:/etc/nginx/conf.d/ \
         -v $NGINX_VOLUMES/www/:/var/www \
         -d nginx:alpine
-elif [ $1 == "init-cert" ]; then
+elif [[ $1 == "init-cert" ]]; then
     # init certbot
     for d in ${DOMAINS[@]}; do
         docker run -it --rm --name letsencrypt \
@@ -87,12 +83,20 @@ elif [ $1 == "init-cert" ]; then
             -d ${d} \
             -m $EMAIL
     done
-elif [ $1 == "renew" ]; then
+elif [[ $1 == "renew" ]]; then
     echo $RENEW_ECHO_FLAIR Running renewal check... $RENEW_ECHO_FLAIR >> $RENEW_LOG
+    echo "Timestamp: $(date -Ins) ($(date))" >> $RENEW_LOG
     docker run -t --rm --name letsencrypt \
         -v "$NGINX_VOLUMES/ssl:/etc/letsencrypt" \
         --volumes-from $RPROXY_NAME \
         certbot/certbot \
         renew &>> $RENEW_LOG
     echo $RENEW_ECHO_FLAIR Renew check complete $RENEW_ECHO_FLAIR >> $RENEW_LOG
+else
+    echo Proxy manage script
+    echo
+    echo Commands:
+    echo -e "\tinit-rp\t\tInitialises the reverse-proxy container"
+    echo -e "\tinit-cert\tInitialises the certificates"
+    echo -e "\trenew\t\tCalls the certbot 'renew' with the need volumes"
 fi
