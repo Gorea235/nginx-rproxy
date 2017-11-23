@@ -2,36 +2,15 @@
 ###############################################################################
 # (A lot of code sourced from:
 # https://www.cb-net.co.uk/linux/using-lets-encrypt-with-an-nginx-docker-container-plus-bye-bye-startssl/)
-# 
-# This script is for initialising an nginx proxy, installing certificates from
-# letscnrypt, and provides the ability to renew them.
-# 
-# To use this script properly, copy it and the conf file to a directory on
-# the server computer, edit the conf file to your specifications, and run this
-# file under sudo with the argument 'init-rp'. This will set up the nginx
-# proxy container and the volume directories. After, copy 'nginx_config/setup/*'
-# into the '$NGINX_VOLUMES/conf.d' directory in order to setup the base
-# certification server, then restart the $RPROXY_NAME container to enable it.
-# 
-# Once this is done, run this file under sudo again with the argument 'init-cert'
-# in order to initialise the certbot. Once this is done, delete the content of
-# the '$NGINX_VOLUMES/conf.d' folder, and copy in 'nginx_config/running/*', 
-# then edit the 'var.*' files in the includes folder to the variables of the
-# server, then restart the $RPROXY_NAME container to enable it.
-# 
-# Once this is done, the reverse proxy should be working with SSL enabled.
-# 
-# To setup the renew, add something like the following to the sudo crontab:
-# 
-#     0 0 * * 0,5 (cd <script copy location> && ./proxy-manage renew)
-# 
-# This will execute the renew script every Monday & Thursday. The cd command
-# is used to keep the relative paths that this script uses. The log of this
-# renew is stored in $RENEW_LOG.
+#
+# For a full walkthrough, please see
+# https://github.com/Gorea235/nginx-rproxy
 ###############################################################################
 
 # main variables
-CONFIG="./proxy-manage.conf"
+CONFIG_PATH="."
+CONFIG="${CONFIG_PATH}/.env"
+RPROXY_COMPOSE="${CONFIG_PATH}/docker-compose.rproxy.yml"
 RENEW_LOG="./proxy-manage-renew.log"
 RENEW_ECHO_FLAIR=" ================== "
 
@@ -54,20 +33,22 @@ if [[ $1 == "init-rp" ]]; then
     # and set owner to the config value
     mkdir -p $NGINX_VOLUMES/conf.d
     chown $STD_USER $NGINX_VOLUMES/conf.d
-    for d in ${DOMAINS[@]}; do
-        mkdir -p $NGINX_VOLUMES/www/${d}
-        chown $STD_USER $NGINX_VOLUMES/www/${d}
-    done
+    mkdir -p $NGINX_VOLUMES/www/_acme
+    chown $STD_USER $NGINX_VOLUMES/www/_acme
     mkdir -p $NGINX_VOLUMES/ssl
     chown $STD_USER $NGINX_VOLUMES/ssl
 
     # init nginx container
-    docker run --name $RPROXY_NAME -p 80:80 -p 443:443 \
-        --restart always --network $NETWORK_NAME \
-        -v $NGINX_VOLUMES/ssl/:/etc/nginx/ssl/ \
-        -v $NGINX_VOLUMES/conf.d/:/etc/nginx/conf.d/ \
-        -v $NGINX_VOLUMES/www/:/var/www \
-        -d nginx:alpine
+    docker-compose -f $RPROXY_COMPOSE up -d
+elif [[ $1 == "update-rp" ]]; then
+    # stop running rproxy
+    docker-compose -f $RPROXY_COMPOSE down
+
+    # pull and restart
+    docker-compose -f $RPROXY_COMPOSE pull && docker-compose -f $RPROXY_COMPOSE up -d
+
+    # clean images
+    docker image prune -f
 elif [[ $1 == "init-cert" ]]; then
     # init certbot
     for d in ${DOMAINS[@]}; do
@@ -77,7 +58,7 @@ elif [[ $1 == "init-cert" ]]; then
             certbot/certbot \
             certonly \
             --webroot \
-            --webroot-path /var/www/${d} \
+            --webroot-path /var/www/_acme \
             --agree-tos \
             --renew-by-default \
             -d ${d} \
@@ -97,6 +78,7 @@ else
     echo
     echo Commands:
     echo -e "\tinit-rp\t\tInitialises the reverse-proxy container"
+    echo -e "\tupdate-rp\t\Restarts and updates the reverse-proxy container"
     echo -e "\tinit-cert\tInitialises the certificates"
-    echo -e "\trenew\t\tCalls the certbot 'renew' with the need volumes"
+    echo -e "\trenew\t\tCalls the certbot 'renew' with the needed volumes"
 fi

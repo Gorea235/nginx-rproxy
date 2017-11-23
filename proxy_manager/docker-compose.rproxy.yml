@@ -1,0 +1,19 @@
+version: '3.4'
+services:
+  rproxy:
+    container_name: "${RPROXY_NAME}"
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    # networks:
+    #   - nw_webserver
+    volumes:
+      - "${NGINX_VOLUMES}/ssl/:/etc/nginx/ssl/"
+      - "${NGINX_VOLUMES}/conf.d/:/etc/nginx/conf.d/"
+      - "${NGINX_VOLUMES}/www/:/var/www"
+
+# networks:
+#   nw_webserver:
+#     external: true
