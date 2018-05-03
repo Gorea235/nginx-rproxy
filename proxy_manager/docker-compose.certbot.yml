@@ -1,0 +1,13 @@
+version: '3.4'
+services:
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - "${NGINX_VOLUMES}/ssl:/etc/letsencrypt"
+      - "${NGINX_VOLUMES}/www/:/var/www"
+    env_file: certbot-config.env
+  certbot-dns-r53:
+    image: certbot/dns-route53
+    volumes:
+      - "${NGINX_VOLUMES}/ssl:/etc/letsencrypt"
+    env_file: certbot-config.env

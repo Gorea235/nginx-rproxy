@@ -11,6 +11,7 @@
 CONFIG_PATH="."
 CONFIG="${CONFIG_PATH}/.env"
 RPROXY_COMPOSE="${CONFIG_PATH}/docker-compose.rproxy.yml"
+CERTBOT_COMPOSE="${CONFIG_PATH}/docker-compose.certbot.yml"
 RENEW_LOG="./proxy-manage-renew.log"
 RENEW_ECHO_FLAIR=" ================== "
 
@@ -27,6 +28,16 @@ fi
 
 # load variables
 source $CONFIG
+
+clean_images () {
+    # cleans hanging images
+    docker image prune -f
+}
+
+certbot_compose_down () {
+    docker-compose -f $CERTBOT_COMPOSE down > /dev/null
+    clean_images
+}
 
 if [[ $1 == "init-rp" ]]; then
     # init volumes
@@ -47,38 +58,48 @@ elif [[ $1 == "update-rp" ]]; then
     # pull and restart
     docker-compose -f $RPROXY_COMPOSE pull && docker-compose -f $RPROXY_COMPOSE up -d
 
-    # clean images
-    docker image prune -f
+    clean_images
 elif [[ $1 == "init-cert" ]]; then
     # init certbot
-    for d in ${DOMAINS[@]}; do
-        docker run -it --rm --name letsencrypt \
-            -v "$NGINX_VOLUMES/ssl:/etc/letsencrypt" \
-            --volumes-from $RPROXY_NAME \
-            certbot/certbot \
-            certonly \
-            --webroot \
-            --webroot-path /var/www/_acme \
-            --agree-tos \
-            --renew-by-default \
-            -d ${d} \
-            -m $EMAIL
-    done
+    docker-compose -f $CERTBOT_COMPOSE run certbot \
+        certonly \
+        --webroot \
+        --webroot-path /var/www/_acme \
+        --agree-tos \
+        --renew-by-default \
+        "${DOMAINS[@]/#/-d }" \
+        -m $EMAIL
+    certbot_compose_down
+elif [[ $1 == "init-cert-dns-r53" ]]; then
+    # init DNS-based certbot & remove lasting containers once done
+    docker-compose -f $CERTBOT_COMPOSE pull && docker-compose -f $CERTBOT_COMPOSE run certbot-dns-r53 \
+        certonly \
+        --dns-route53 \
+        --server https://acme-v02.api.letsencrypt.org/directory \
+        --agree-tos \
+        --renew-by-default \
+        "${DOMAINS[@]/#/-d }" \
+        -m $EMAIL
+    certbot_compose_down
 elif [[ $1 == "renew" ]]; then
+    SERVICE=certbot
+    if [[ $2 == "dns-r53" ]]; then
+        SERVICE=certbot-dns-r53
+    fi
     echo $RENEW_ECHO_FLAIR Running renewal check... $RENEW_ECHO_FLAIR >> $RENEW_LOG
     echo "Timestamp: $(date -Ins) ($(date))" >> $RENEW_LOG
-    docker run -t --rm --name letsencrypt \
-        -v "$NGINX_VOLUMES/ssl:/etc/letsencrypt" \
-        --volumes-from $RPROXY_NAME \
-        certbot/certbot \
+    docker-compose -f $CERTBOT_COMPOSE pull && docker-compose -f $CERTBOT_COMPOSE run $SERVICE \
         renew &>> $RENEW_LOG
+    certbot_compose_down
     echo $RENEW_ECHO_FLAIR Renew check complete $RENEW_ECHO_FLAIR >> $RENEW_LOG
 else
     echo Proxy manage script
     echo
     echo Commands:
-    echo -e "\tinit-rp\t\tInitialises the reverse-proxy container"
-    echo -e "\tupdate-rp\t\Restarts and updates the reverse-proxy container"
-    echo -e "\tinit-cert\tInitialises the certificates"
-    echo -e "\trenew\t\tCalls the certbot 'renew' with the needed volumes"
+    echo -e "\tinit-rp\t\t\tInitialises the reverse-proxy container"
+    echo -e "\tupdate-rp\t\tRestarts and updates the reverse-proxy container"
+    echo -e "\tinit-cert\t\tInitialises the certificates using standard webroot"
+    echo -e "\tinit-cert-dns-r53\tInitialises the certificates using the dns-route53 plugin"
+    echo -e "\trenew\t\t\tCalls the certbot 'renew' with the needed volumes"
+    echo -e "\trenew dns-r53\t\tSame as 'renew', but using the dns-route53 plugin"
 fi
